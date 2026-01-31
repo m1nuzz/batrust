@@ -1,0 +1,3 @@
+.beads/** linguist-generated
+*.db linguist-generated
+.beams/merge-meta.json merge=union
