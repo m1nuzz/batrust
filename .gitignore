@@ -1,0 +1,7 @@
+.qwen/
+prd.md
+QWEN.md
+Solaar/
+.beads/export-state/
+.beads/beads.db-shm
+.beads/beads.db-wal
