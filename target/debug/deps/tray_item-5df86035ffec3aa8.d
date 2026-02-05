@@ -1,0 +1,10 @@
+C:\Projectrs\batrust\target\debug\deps\tray_item-5df86035ffec3aa8.d: C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\lib.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\mod.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\mod.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\funcs.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\structs.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\error.rs
+
+C:\Projectrs\batrust\target\debug\deps\libtray_item-5df86035ffec3aa8.rmeta: C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\lib.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\mod.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\mod.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\funcs.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\structs.rs C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\error.rs
+
+C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\lib.rs:
+C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\mod.rs:
+C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\mod.rs:
+C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\funcs.rs:
+C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\api\windows\structs.rs:
+C:\Users\m1nus\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\tray-item-0.9.0\src\error.rs:
