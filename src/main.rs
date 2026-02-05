@@ -30,15 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // ========================================
-    // STEP 1: Read battery ONCE at startup
-    // ========================================
-    println!("🔍 Reading initial battery level...");
+    // Initial read (might fail if mouse is asleep - that's OK!)
+    println!("Reading initial battery level...");
     match device.get_battery() {
         Ok(battery) => {
-            println!("✓ Initial battery: {}% {:?}", battery.percentage, battery.status);
-
-            // Update tray with initial value
+            println!("Initial battery: {}% {:?}", battery.percentage, battery.status);
             if let Some(ref t) = tray {
                 if let Ok(mut tray_handle) = t.lock() {
                     tray_handle.update(&battery, &config);
@@ -46,48 +42,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            eprintln!("⚠ Could not read initial battery: {}", e);
+            eprintln!("Could not read initial battery: {}", e);
+            eprintln!("Mouse might be sleeping or disconnected - will retry...");
         }
     }
-
-    println!("👂 Listening for battery events (passive mode - minimal battery impact)...");
-    println!("   Device will send events automatically when battery changes");
-    println!("   Falling back to polling every {} seconds if no events received", config.update_interval);
-
-    // ========================================
-    // STEP 2: Hybrid approach: event-based + fallback polling
-    // ========================================
-    let mut event_timer = interval(Duration::from_millis(500)); // Check every 500ms for events
+    
+    println!("Listening for battery events (passive mode)...");
+    println!("Fallback polling every {} seconds if no events received", config.polling_interval);
+    
+    let mut event_timer = interval(Duration::from_millis(500));
     let mut last_event_time = Instant::now();
-    let mut polling_timer = interval(Duration::from_secs(config.update_interval)); // Fallback polling
-
+    let mut polling_timer = interval(Duration::from_secs(config.polling_interval));
+    
+    // Track if we've received any events - for auto-disabling events if unsupported
+    let mut events_received = false;
+    let mut event_listening_enabled = true;
+    let max_attempts_without_events = 10; // after 10 seconds without events, disable event listening
+    let mut no_event_attempts = 0;
+    
     loop {
         tokio::select! {
-            // Check for events
+            // Check for events every 500ms (only if enabled)
             _ = event_timer.tick() => {
-                // Passive listening - does NOT wake up device!
-                if let Ok(battery) = device.listen_for_battery_events() {
-                    println!("📬 Battery event: {}% {:?}", battery.percentage, battery.status);
-                    last_event_time = Instant::now();
-
-                    // Update tray with new battery info
-                    if let Some(ref t) = tray {
-                        if let Ok(mut tray_handle) = t.lock() {
-                            tray_handle.update(&battery, &config);
+                if event_listening_enabled {
+                    // ✅ Passive listening - does NOT wake device
+                    if let Ok(battery) = device.listen_for_battery_events() {
+                        println!("Battery event: {}% {:?}", battery.percentage, battery.status);
+                        last_event_time = Instant::now();
+                        events_received = true;
+                        no_event_attempts = 0; // reset counter
+                        
+                        if let Some(ref t) = tray {
+                            if let Ok(mut tray_handle) = t.lock() {
+                                tray_handle.update(&battery, &config);
+                            }
+                        }
+                    } else {
+                        // No event received - increment counter
+                        no_event_attempts += 1;
+                        
+                        // If we've tried for a while without receiving events, consider disabling
+                        if !events_received && no_event_attempts >= max_attempts_without_events {
+                            println!("⚠ No events received after {} attempts, disabling event listening", max_attempts_without_events);
+                            event_listening_enabled = false;
+                            println!("ℹ️  Switching to polling-only mode");
                         }
                     }
                 }
-            },
-            // Fallback polling if no events received recently
+            }
+            
+            // Fallback polling - always active
             _ = polling_timer.tick() => {
                 let time_since_last_event = last_event_time.elapsed();
-                if time_since_last_event.as_secs() >= config.update_interval {
-                    println!("🔄 No recent events, performing fallback poll...");
+                
+                if time_since_last_event.as_secs() > config.polling_interval || !event_listening_enabled {
+                    println!("No recent events, trying graceful poll...");
+                    
+                    // ✅ Graceful poll - returns cached value if sleeping
                     match device.get_battery() {
                         Ok(battery) => {
-                            println!("📊 Fallback battery read: {}% {:?}", battery.percentage, battery.status);
-
-                            // Update tray with new battery info
+                            println!("Polled battery: {}% {:?}", battery.percentage, battery.status);
+                            last_event_time = Instant::now();
+                            
                             if let Some(ref t) = tray {
                                 if let Ok(mut tray_handle) = t.lock() {
                                     tray_handle.update(&battery, &config);
@@ -95,7 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         Err(e) => {
-                            eprintln!("⚠ Fallback battery read failed: {}", e);
+                            // ✅ Don't panic - just log and continue
+                            eprintln!("Graceful poll failed: {} - using cached value", e);
                         }
                     }
                 }

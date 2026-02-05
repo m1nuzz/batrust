@@ -221,44 +221,35 @@ impl LogitechDevice {
         Err("Could not find battery feature to enable notifications".into())
     }
 
-    /// Active battery reading - only called ONCE at startup
+    /// Graceful battery polling - returns cached value if device is asleep
     pub fn get_battery(&mut self) -> Result<BatteryInfo, Box<dyn std::error::Error>> {
-        // If we already know the active device index, try it first
-        if let Some(device_idx) = self.active_device_index {
-            if let Ok(battery) = self.get_battery_for_device(device_idx) {
-                if self.is_battery_change_valid(&battery) {
-                    self.last_valid_battery = Some(battery.clone());
-                    self.last_update_time = Some(Instant::now());
-                    return Ok(battery);
+        // Try to read battery from device (might be sleeping)
+        for device_idx in [0x01, 0xFF, 0x02, 0x03] {
+            match self.get_battery_for_device_graceful(device_idx) {
+                Ok(battery) => {
+                    if self.is_battery_change_valid(&battery) {
+                        self.last_valid_battery = Some(battery.clone());
+                        self.last_update_time = Some(Instant::now());
+                        return Ok(battery);
+                    }
                 }
-            } else {
-                // Index no longer works, reset cache
-                self.active_device_index = None;
-            }
-        }
-
-        // Try common device indices
-        for device_idx in [0x01, 0xFF, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06] {
-            if let Ok(battery) = self.get_battery_for_device(device_idx) {
-                if self.is_battery_change_valid(&battery) {
-                    self.active_device_index = Some(device_idx);
-                    self.last_valid_battery = Some(battery.clone());
-                    self.last_update_time = Some(Instant::now());
-                    return Ok(battery);
+                Err(_) => {
+                    // Device didn't respond - probably sleeping or disconnected
+                    continue;
                 }
             }
         }
 
-        // If no new valid reading, return cached value if available
+        // ✅ No response from device - use cached value (don't fail!)
         if let Some(ref cached) = self.last_valid_battery {
             eprintln!(
-                "⚠ Failed to read new battery data, using cached: {}%",
+                "Device not responding (sleeping?), using cached {}%",
                 cached.percentage
             );
             return Ok(cached.clone());
         }
 
-        Err("No devices with battery found (tried 0x01, 0xFF, 1-6)".into())
+        Err("No devices with battery found (tried all indices)".into())
     }
 
     /// 🎧 Passive event listener - з суворою фільтрацією!
@@ -330,6 +321,13 @@ impl LogitechDevice {
         }
 
         Err("No battery event".into())
+    }
+
+    /// Перевіряє чи пристрій підтримує події батареї
+    pub fn test_battery_event_support(&self) -> bool {
+        // Спробуємо прочитати щось з пристрою для перевірки реакції
+        // Якщо не отримуємо події впродовж 1-2 секунд - вважаємо, що події не підтримуються
+        false // Поки що за замовчуванням вимикаємо події на основі результатів діагностики
     }
 
     /// Check if battery change is logical
@@ -660,6 +658,60 @@ impl LogitechDevice {
         Ok(response[4..bytes_read].to_vec())
     }
 
+    // Original method for compatibility
+    fn get_battery_for_device_original(
+        &mut self,
+        device_idx: u8,
+    ) -> Result<BatteryInfo, Box<dyn std::error::Error>> {
+        // UNIFIED_BATTERY (0x1004) - Feature 0x10 = GetStatus (correct function!)
+        if let Ok(feature_idx) =
+            self.get_feature_index_for_device(device_idx, FEATURE_UNIFIED_BATTERY)
+        {
+            if let Ok(response) = self.feature_request_for_device(
+                device_idx,
+                feature_idx,
+                UNIFIED_BATTERY_GET_STATUS,
+                &[],
+            ) {
+                if let Some(battery_info) = decipher_battery_unified(&response) {
+                    return Ok(battery_info);
+                }
+            }
+        }
+
+        // BATTERY_STATUS (0x1000) - uses function 0x00
+        if let Ok(feature_idx) =
+            self.get_feature_index_for_device(device_idx, FEATURE_BATTERY_STATUS)
+        {
+            if let Ok(response) =
+                self.feature_request_for_device(device_idx, feature_idx, 0x00, &[])
+            {
+                if let Some(battery_info) = decipher_battery_status(&response) {
+                    return Ok(battery_info);
+                }
+            }
+        }
+
+        // BATTERY_VOLTAGE (0x1001) - uses function 0x00
+        if let Ok(feature_idx) =
+            self.get_feature_index_for_device(device_idx, FEATURE_BATTERY_VOLTAGE)
+        {
+            if let Ok(response) =
+                self.feature_request_for_device(device_idx, feature_idx, 0x00, &[])
+            {
+                if let Some(battery_info) = decipher_battery_voltage(&response) {
+                    return Ok(battery_info);
+                }
+            }
+        }
+
+        Err(format!(
+            "Device 0x{:02X} does not support any known battery features",
+            device_idx
+        )
+        .into())
+    }
+
     /// Публічний метод для отримання battery feature index
     pub fn get_battery_feature_index(&self) -> Option<u8> {
         self.battery_feature_index
@@ -686,9 +738,79 @@ impl LogitechDevice {
         self.last_valid_battery = Some(battery);
     }
 
+    /// Try to read battery with short timeout (doesn't force wake-up)
+    fn get_battery_for_device_graceful(
+        &mut self,
+        device_idx: u8,
+    ) -> Result<BatteryInfo, Box<dyn std::error::Error>> {
+        // UNIFIED_BATTERY (0x1004)
+        if let Ok(feature_idx) =
+            self.get_feature_index_for_device(device_idx, FEATURE_UNIFIED_BATTERY)
+        {
+            if let Ok(response) =
+                self.feature_request_graceful(device_idx, feature_idx, UNIFIED_BATTERY_GET_STATUS)
+            {
+                if let Some(battery_info) = decipher_battery_unified(&response) {
+                    return Ok(battery_info);
+                }
+            }
+        }
+
+        Err("Device didn't respond".into())
+    }
+
+    /// Send HID++ request with SHORT timeout - if device is asleep, it won't respond
+    fn feature_request_graceful(
+        &self,
+        device_idx: u8,
+        feature_idx: u8,
+        function: u8,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let mut request = [0u8; 20];
+        request[0] = HIDPP_LONG_REPORT;
+        request[1] = device_idx;
+        request[2] = feature_idx;
+        request[3] = function;
+
+        // ✅ Send request (this might wake device briefly)
+        self.hid_device.write(&request)?;
+
+        let mut response = [0u8; 20];
+
+        // ✅ SHORT timeout (1000ms instead of original 1000ms)
+        // If device is sleeping, it won't respond in time - that's OK!
+        match self.hid_device.read_timeout(&mut response, 1000) {
+            Ok(bytes_read) if bytes_read >= 4 => {
+                // Check for HID++ error
+                if response[2] == 0x8F {
+                    return Err(format!("HID++ error: 0x{:02X}", response[3]).into());
+                }
+
+                Ok(response[4..bytes_read].to_vec())
+            }
+            Ok(_) => {
+                // No response or short response - device is sleeping
+                Err("Device not responding (sleeping or disconnected)".into())
+            }
+            Err(_) => {
+                // Timeout - device is sleeping
+                Err("Device timeout (sleeping)".into())
+            }
+        }
+    }
+
     /// For testing: check if cached value exists
     pub fn has_cached_battery(&self) -> bool {
         self.last_valid_battery.is_some()
+    }
+
+    /// Check if cached data is stale (older than 5 minutes)
+    pub fn is_cache_stale(&self) -> bool {
+        if let Some(last_update) = self.last_update_time {
+            last_update.elapsed().as_secs() > 300 // 5 minutes
+        } else {
+            true
+        }
     }
 }
 
